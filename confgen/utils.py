@@ -28,7 +28,7 @@ def stream(cmd, cwd=None, shell=True):
 def normal_termination(lines, pattern):
     """Check for pattern in lines"""
     for l in reversed(lines):
-        if pattern in l:
+        if l.startswith(pattern):
             return True
     return False
 

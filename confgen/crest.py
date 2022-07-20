@@ -15,21 +15,26 @@ from confgen.xtb_utils import (
     write_xyz,
 )
 
+from rdkit import RDLogger
+
+RDLogger.DisableLog("rdApp.*")
+
 CREST_CMD = "crest"
 
 
 def check_crest(logger):
-    """Check CREST executable and xTB"""
-    lines = stream(f"{CREST_CMD} --version")
-    lines = list(lines)
-    if normal_termination(lines, "FITNESS FOR A PARTICULAR PURPOSE"):
-        for l in lines:
-            if "Compatible with xTB version" in l:
-                req_xtb_v = l.split()[-1]
-                check_xtb(req_xtb_v, logger)
-    else:
-        raise logger.warning(f"Could not find CREST ({CREST_CMD})")
-
+    # """Check CREST executable and xTB"""
+    # lines = stream(f"{CREST_CMD} --version")
+    # lines = list(lines)
+    # print(lines)
+    # if normal_termination(lines, "FITNESS FOR A PARTICULAR PURPOSE"):
+    #     for l in lines:
+    #         if "Compatible with xTB version" in l:
+    #             req_xtb_v = l.split()[-1]
+    #             check_xtb(req_xtb_v, logger)
+    # else:
+    #     raise Warning(f"Could not find CREST ({CREST_CMD})")
+    pass
 
 def atom_constrains(options, scr):
     """Write .xcontrol file containing atom constrains for CREST"""

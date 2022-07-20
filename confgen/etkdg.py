@@ -3,12 +3,16 @@ from rdkit.Chem import AllChem
 
 from confgen.tools import Cluster, Filter, GeomOptimizer
 
+from rdkit import RDLogger
+
+RDLogger.DisableLog("rdApp.*")
+from rdkit.rdBase import BlockLogs
 
 def run_etkdg(mol, options, n_cores, verbose=False):
     """Embed multiple conformers of mol"""
 
     assert len(Chem.GetMolFrags(mol)) == 1, "Can not handle multiple fragments yet."
-
+    block = BlockLogs()
     coordMap = {}
     if "constrain_atoms" in options and len(options["constrain_atoms"]) > 0:
         conf = mol.GetConformer(0)
@@ -35,3 +39,4 @@ def run_etkdg(mol, options, n_cores, verbose=False):
 
     if verbose:
         print(f"{mol.GetNumConformers()} Conformers after ETKDG Embedding+Pruning")
+    del block

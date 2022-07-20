@@ -1,7 +1,8 @@
 import copy
+import logging
 import os
 import tempfile
-from multiprocessing import Pool
+from multiprocessing import Pool, get_context
 from pathlib import Path
 
 import numpy as np
@@ -11,6 +12,8 @@ from rdkit.Geometry import Point3D
 from confgen.utils import normal_termination, stream
 
 XTB_CMD = "xtb"
+_logger = logging.getLogger("xtb")
+_logger.setLevel(logging.WARNING)
 
 
 def set_threads(n_cores):
@@ -29,8 +32,7 @@ def check_xtb(version=None, logger=None):
             for l in lines:
                 if "xtb version" in l:
                     assert l.split()[3] == version, f"Requires xtb version {version}"
-            # if "Mac" in l:
-            #     raise Warning("Does not work with Mac compiled xTB")
+            _logger.info(f"xtb version {version}")
     else:
         raise Warning("Could not find xTB")
 
@@ -68,29 +70,26 @@ def add_conformer2mol(mol, atoms, coords, energy=None):
     mol.AddConformer(conf, assignId=True)
 
 
-import time
-
-
-def run_xtb_opt(args):
+def run_xtb(args):
     """Runs xTB command for xyz-file in parent directory and returns optimized structure"""
     cmd, xyz_file = args
-    start = time.time()
+    _logger.debug(f"Running {cmd}")
     lines = stream(f"{cmd}-- {xyz_file.name}", cwd=xyz_file.parent)
     lines = list(lines)
-    end = time.time()
-    print("time:", end - start)
     if normal_termination(lines, "normal termination of xtb"):
-        return read_opt_structure_and_energy(lines)
+        _logger.info("".join(lines))
+        atoms, coords = read_opt_structure(lines)
+        energy = read_energy(lines)
+        return atoms, coords, energy
     else:
+        _logger.debug("".join(lines))
         return None
 
 
-def read_opt_structure_and_energy(lines):
-    """Reads optimized structure and energy from xTB output"""
+def read_opt_structure(lines):
+    """Reads optimized structure from xTB output"""
     for i, l in reversed(list(enumerate(lines))):
-        if "TOTAL ENERGY" in l:
-            energy = float(l.split()[-3])
-        elif "final structure" in l:
+        if "final structure" in l:
             break
 
     n_atoms = int(lines[i + 2].rstrip())
@@ -114,7 +113,16 @@ def read_opt_structure_and_energy(lines):
         atom, coord = parse_coordline(l)
         atoms.append(atom)
         coords.append(coord)
-    return atoms, coords, energy
+    return atoms, coords
+
+
+def read_energy(lines):
+    """Reads energy from xTB output"""
+    for i, l in reversed(list(enumerate(lines))):
+        if "TOTAL ENERGY" in l:
+            energy = float(l.split()[-3])
+            break
+    return energy
 
 
 def xtb_optimize(mol, options, n_cores, scr="."):
@@ -122,8 +130,6 @@ def xtb_optimize(mol, options, n_cores, scr="."):
 
     # Only use one core for each xTB calculation
     set_threads(1)
-    if "opt" not in options:
-        options["opt"] = None
 
     # Creat TMP directory
     tempdir = tempfile.TemporaryDirectory(dir=scr, prefix=f"XTBOPT_")
@@ -164,8 +170,8 @@ def xtb_optimize(mol, options, n_cores, scr="."):
     for xyz_file in xyz_files:
         args.append((cmd, xyz_file))
 
-    with Pool(n_cores) as pool:
-        results = pool.map(run_xtb_opt, args)
+    with get_context("fork").Pool(n_cores) as pool:
+        results = pool.map(run_xtb, args)
     results = list(results)
 
     # Add optimized conformers to mol_opt

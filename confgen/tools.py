@@ -8,6 +8,11 @@ from confgen.rmsd_utils import rmsd_matrix
 from confgen.utils import hartree2kcalmol
 from confgen.xtb_utils import xtb_optimize
 
+from rdkit import RDLogger
+
+RDLogger.DisableLog("rdApp.*")
+
+
 
 class GeomOptimizer:
     """Optimize the molecular geometry using UFF, MMFF or a GFNx method"""
