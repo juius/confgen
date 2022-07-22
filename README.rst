@@ -9,7 +9,7 @@ Example using ETKDG
 
     from confgen import ConformerGenerator
     from confgen.tools import GeomOptimizer, Filter, Cluster
-    
+
     # ETKDG options
     etkdg_options = {
         'n_confs': 1000,
@@ -17,7 +17,7 @@ Example using ETKDG
         'opt_flow': [
             # GFN-FF optimization of all conformers in methanol
             GeomOptimizer('gfnff', options={'alpb': 'methanol'}),
-            # keep conformers within 3 kcal/mol of lowest energy one 
+            # keep conformers within 3 kcal/mol of lowest energy one
             Filter(3),
             # cluster conformers based on RMSD and keep lowest energy
             # conformer of each cluster (or 'centroid')
@@ -38,7 +38,7 @@ Example using ETKDG
     mol = cgen.generate(mol)
 
     mol.GetNumConformers() # --> 48 Conformers
-    
+
 Atoms can be constrained in the embedding and optimization
 
 .. code-block:: python
@@ -54,9 +54,9 @@ Atoms can be constrained in the embedding and optimization
             ...
             ]
     }
-    
+
     ...
-    
+
 
 Example using CREST
 ---------------
@@ -64,39 +64,35 @@ CREST keywords can be found `here <https://xtb-docs.readthedocs.io/en/latest/cre
 
 
 .. code-block:: python
-          
+
     # CREST options
     crest_options = {'gfn': 1,
                      'ewin': 3,
                      'mdlen': 'x0.5',
                      'mquick': None}
-    
+
     # Initialize ConformerGenerator
     cgen = ConformerGenerator(method='crest', options=crest_options, n_cores=2)
-    
+
     # Initialize rdkit.mol object without any conformers
     mol = Chem.MolFromSmiles("C[C@H](N)C(=O)NCC(=O)O")
     mol = Chem.AddHs(mol)
-    
+
     # Generate Conformers
     mol = cgen.generate(mol)
-    
+
     mol.GetNumConformers() # --> 9 Conformers
 
 Constrains can be parsed to CREST as a list of atom and/or bond indices:
 
 .. code-block:: python
-    
+
     pattern = Chem.MolFromSmarts('NC(=O)CN')
     match = list(mol.GetSubstructMatch(pattern))
     # [5, 3, 4, 1, 2]
-     
+
     # CREST options
     crest_options = {'constrain_atoms': match,
                      'constrain_bonds': [(1,4),(4,5)]
                      ...
                      }
-                     
-                     
-     
-                  

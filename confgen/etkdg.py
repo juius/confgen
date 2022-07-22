@@ -1,42 +1,84 @@
+import copy
+from typing import Optional
+
+from generator import BaseConformerGenerator
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from confgen.tools import Cluster, Filter, GeomOptimizer
 
-from rdkit import RDLogger
+class ETKDG(BaseConformerGenerator):
+    """Conformer Generator using the ETKDG method."""
 
-RDLogger.DisableLog("rdApp.*")
-from rdkit.rdBase import BlockLogs
+    def __init__(
+        self,
+        n_confs: int = 10,
+        pruneRmsThresh: float = 0.1,
+        actions: Optional[list] = None,
+        useRandomCoords: bool = True,
+        ETversion: int = 2,
+        **kwargs
+    ) -> None:
+        self.n_confs = n_confs
+        self.pruneRmsThresh = pruneRmsThresh
+        self.actions = actions
+        self.useRandomCoords = useRandomCoords
+        self.ETversion = ETversion
+        super().__init__(**kwargs)
 
-def run_etkdg(mol, options, n_cores, verbose=False):
-    """Embed multiple conformers of mol"""
+    def generate(
+        self, mol: Chem.Mol, constrained_atoms: Optional[list] = None
+    ) -> Chem.Mol:
+        """Generate conformers of mol object using the ETKDG method.
 
-    assert len(Chem.GetMolFrags(mol)) == 1, "Can not handle multiple fragments yet."
-    block = BlockLogs()
-    coordMap = {}
-    if "constrain_atoms" in options and len(options["constrain_atoms"]) > 0:
-        conf = mol.GetConformer(0)
-        for idxI in options["constrain_atoms"]:
-            PtI = conf.GetAtomPosition(idxI)
-            coordMap[idxI] = PtI
-    if "embed_threshold" not in options:
-        options["embed_threshold"] = 0
+        Args:
+            mol (Chem.Mol): Mol object
+            constrained_atoms (Optional[list]): List of atomids to constrain
 
-    cids = AllChem.EmbedMultipleConfs(
-        mol=mol,
-        numConfs=options["n_confs"],
-        coordMap=coordMap,
-        numThreads=n_cores,
-        pruneRmsThresh=options["embed_threshold"],
-        useRandomCoords=True,
-        ETversion=2,
-    )
+        Raises:
+            ValueError: if mol does not contain a conformer with id 0 which is
+                        used to constrain atoms to their respective positions
 
-    assert len(cids) > 0, "Embed failed"
+        Returns:
+            Chem.Mol: Mol object with conformers embedded
 
-    if "constrain_atoms" in options and len(options["constrain_atoms"]) > 0:
-        rms = AllChem.AlignMolConformers(mol, atomIds=options["constrain_atoms"])
+        Note:
+            Conformers are sorted in ascending order of energy.
+            Energy is stored in mol.GetConformer(0).GetProp("energy").
+        """
+        mol3d = copy.deepcopy(mol)
+        assert (
+            len(Chem.GetMolFrags(mol3d)) == 1
+        ), "Can not handle multiple fragments yet."
 
-    if verbose:
-        print(f"{mol.GetNumConformers()} Conformers after ETKDG Embedding+Pruning")
-    del block
+        constrained_embed = True if constrained_atoms is not None else False
+
+        coordMap = {}
+        if constrained_embed:
+            try:
+                conf = mol3d.GetConformer(0)
+            except ValueError:
+                raise ValueError("No conformers found to apply atom constraints to.")
+            for idxI in constrained_atoms:
+                PtI = conf.GetAtomPosition(idxI)
+                coordMap[idxI] = PtI
+
+        cids = AllChem.EmbedMultipleConfs(
+            mol=mol3d,
+            coordMap=coordMap,
+            numThreads=self.n_cores,
+            numConfs=self.n_confs,
+            pruneRmsThresh=self.pruneRmsThresh,
+            useRandomCoords=self.useRandomCoords,
+            ETversion=self.ETversion,
+        )
+
+        assert len(cids) > 0, "Embed failed."
+
+        if constrained_embed:
+            _ = AllChem.AlignMolConformers(mol3d, atomIds=constrained_atoms)
+
+        if self.actions:
+            for action in self.actions:
+                mol3d = action.run(mol3d, n_cores=self.n_cores, scr=self.scr)
+
+        return mol3d

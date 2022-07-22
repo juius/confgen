@@ -1,173 +1,211 @@
+import copy
+import logging
 import os
-import shutil
 import tempfile
 from pathlib import Path
+from typing import Optional, Union
 
+from generator import BaseConformerGenerator
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from confgen.utils import normal_termination, stream
 from confgen.xtb_utils import (
     add_conformer2mol,
-    check_xtb,
     parse_coordline,
     set_threads,
     write_xyz,
 )
 
-from rdkit import RDLogger
-
-RDLogger.DisableLog("rdApp.*")
-
 CREST_CMD = "crest"
 
-
-def check_crest(logger):
-    # """Check CREST executable and xTB"""
-    # lines = stream(f"{CREST_CMD} --version")
-    # lines = list(lines)
-    # print(lines)
-    # if normal_termination(lines, "FITNESS FOR A PARTICULAR PURPOSE"):
-    #     for l in lines:
-    #         if "Compatible with xTB version" in l:
-    #             req_xtb_v = l.split()[-1]
-    #             check_xtb(req_xtb_v, logger)
-    # else:
-    #     raise Warning(f"Could not find CREST ({CREST_CMD})")
-    pass
-
-def atom_constrains(options, scr):
-    """Write .xcontrol file containing atom constrains for CREST"""
-    cs = f"{CREST_CMD} mol.xyz -constrain "
-    # make atom constrains
-    for i in options["constrain_atoms"]:
-        cs += f"{i},"
-    cmd = cs[:-1]  # remove last comma
-    lines = stream(cmd, cwd=scr)
-    lines = list(lines)
-    if not normal_termination(lines, "<.xcontrol.sample> written"):
-        print("Could not write Constrains file")
-        print("".join(lines))
+_logger = logging.getLogger("crest")
+_logger.setLevel(logging.INFO)
 
 
-def bond_constrains(options, scr):
-    """Adds bond constrains to CREST constrain input file"""
-    if not (scr / Path(".xcontrol.sample")).exists():
-        cmd = f"{CREST_CMD} -constrain mol.xyz "
+class CREST(BaseConformerGenerator):
+    """Conformer Generator using CREST [DOI https://doi.org/10.1039/C9CP06869D]
+
+    Note:
+        Valid keywords (https://xtb-docs.readthedocs.io/en/latest/crestcmd.html)
+        can be parsed to CREST as flags with `key=True` or `key=None` or parsed
+        with a value as `key=value`
+
+        >>> CREST(gfn2=True, alpb=None, mdlen='x0.5')
+    """
+
+    def __init__(
+        self,
+        gfn2: bool = True,
+        ewin: Union[int, float] = 6,
+        mquick: bool = True,
+        mdlen: str = "x0.5",
+        **kwargs,
+    ) -> None:
+        super().__init__()
+        self.gfn2 = gfn2
+        self.ewin = ewin
+        self.mquick = mquick
+        self.mdlen = mdlen
+        self.__dict__.update(kwargs)
+
+    @staticmethod
+    def _atom_constrains(constrained_atoms, scr):
+        """Write .xcontrol file containing atom constrains for CREST."""
+        cs = f"{CREST_CMD} mol.xyz -constrain "
+        # make atom constrains
+        for i in constrained_atoms:
+            cs += f"{i},"
+        cmd = cs[:-1]  # remove last comma
         lines = stream(cmd, cwd=scr)
         lines = list(lines)
         if not normal_termination(lines, "<.xcontrol.sample> written"):
             print("Could not write Constrains file")
             print("".join(lines))
-    with open(scr / Path(".xcontrol.sample"), "r") as f:
-        lines = f.readlines()
-    for i, l in enumerate(lines):
-        if "metadyn" in l:
+
+    @staticmethod
+    def _bond_constrains(constrained_bonds, scr):
+        """Adds bond constrains to CREST constrain input file."""
+        if not (scr / Path(".xcontrol.sample")).exists():
+            cmd = f"{CREST_CMD} -constrain mol.xyz "
+            lines = stream(cmd, cwd=scr)
+            lines = list(lines)
+            if not normal_termination(lines, "<.xcontrol.sample> written"):
+                print("Could not write Constrains file")
+                print("".join(lines))
+        with open(scr / Path(".xcontrol.sample"), "r") as f:
+            lines = f.readlines()
+        for i, l in enumerate(lines):
+            if "metadyn" in l:
+                break
+        for bond in constrained_bonds:
+            lines.insert(i, f"  distance: {bond[1]}, {bond[0]}, auto\n")
+        with open(scr / Path(".xcontrol.sample"), "w") as f:
+            f.writelines(lines)
+
+    def _get_crest_cmd(self, constrained_atoms, constrained_bonds):
+        """Generate CREST command."""
+        cmd = f"{CREST_CMD} mol.xyz -T {self.n_cores} "
+        # Generate CREST Constrains
+        if constrained_atoms or constrained_bonds:
+            # Remove xcontrol file if already present
+            if (self.scr / Path(".xcontrol.sample")).exists():
+                os.remove(self.scr / Path(".xcontrol.sample"))
+            cmd += "-cinp .xcontrol.sample "
+            if constrained_atoms:
+                self._atom_constrains(constrained_atoms, self.scr)
+            if constrained_bonds:
+                self._bond_constrains(constrained_bonds, self.scr)
+        # Generate CREST Command
+        options = {
+            k: v for k, v in self.__dict__.items() if k not in ["n_cores", "scr"]
+        }
+
+        for key, value in options.items():
+            if (value is None) or (not value) or (value is True):
+                cmd += f"--{key} "
+            elif value:
+                cmd += f"--{key} {str(value)} "
+        return cmd
+
+    @staticmethod
+    def _read_all_conformers(mol, scr):
+        """Returns a molecule containing all conformers found by CREST in
+        ascending order of energy.
+
+        The electronic energy is stored in the property 'energy'.
+        """
+        org_confid = mol.GetConformer().GetId()
+        # Read all conformers from CREST output
+        tmp = Path(scr).glob("crest_conformers*xyz")
+        for crest_file in tmp:
             break
-    for bond in options["constrain_bonds"]:
-        lines.insert(i, f"  distance: {bond[1]}, {bond[0]}, auto\n")
-    with open(scr / Path(".xcontrol.sample"), "w") as f:
-        f.writelines(lines)
+        with open(crest_file, "r") as f:
+            lines = f.readlines()
+        n_atoms = int(lines[0].lstrip().rstrip("\n"))
+        block_len = n_atoms + 2
+        n_confs = len(lines) // block_len
+        # check if lines divisible by n_atoms+2
+        assert len(lines) / block_len == float(n_confs)
 
-
-def get_crest_cmd(n_cores, scr, options):
-    """Generate CREST command"""
-    cmd = f"{CREST_CMD} mol.xyz -T {n_cores} "
-    # Generate CREST Constrains
-    if any([k in options for k in ["constrain_atoms", "constrain_bonds"]]):
-        # Remove xcontrol file if already present
-        if (scr / Path(".xcontrol.sample")).exists():
-            os.remove(scr / Path(".xcontrol.sample"))
-        cmd += f"-cinp .xcontrol.sample "
-    if "constrain_atoms" in options.keys():
-        atom_constrains(options, scr)
-        del options["constrain_atoms"]
-    if "constrain_bonds" in options.keys():
-        bond_constrains(options, scr)
-        del options["constrain_bonds"]
-    # Generate CREST Command
-    for key, value in options.items():
-        if (value is None) or (not value):
-            cmd += f"--{key} "
-        elif value:
-            cmd += f"--{key} {str(value)} "
-    return cmd
-
-
-def read_all_conformers(mol, scr):
-    """
-    Returns a molecule containing all conformers found by CREST in ascending order of energy.
-    The electronic energy is stored in the property 'energy'.
-    """
-    org_confid = mol.GetConformer().GetId()
-    # Read all conformers from CREST output
-    tmp = Path(scr).glob("crest_conformers*xyz")
-    for crest_file in tmp:
-        break
-    with open(crest_file, "r") as f:
-        lines = f.readlines()
-    n_atoms = int(lines[0].lstrip().rstrip("\n"))
-    block_len = n_atoms + 2
-    n_confs = len(lines) // block_len
-    # check if lines divisible by n_atoms+2
-    assert len(lines) / block_len == float(n_confs)
-
-    # Append all conformers to mol
-    for i in range(n_confs):
-        block = lines[i * block_len : i * block_len + block_len]
-        energy = float(block[1].lstrip().rstrip("\n"))
-        atoms = []
-        coords = []
-        for l in block[2:]:
-            a, c = parse_coordline(l)
-            atoms.append(a)
-            coords.append(c)
-        add_conformer2mol(mol, atoms, coords, energy)
-    # Reset Conformers
-    mol.RemoveConformer(org_confid)
-    confs = mol.GetConformers()
-    for i in range(len(confs)):
-        confs[i].SetId(i)
-    assert mol.GetNumConformers() == n_confs
-
-
-def check_conformer(mol, logger):
-    n_confs = mol.GetNumConformers()
-    if n_confs < 1:
-        logger.info("Embed one conformer to start CREST from")
-        assert (
-            AllChem.EmbedMolecule(mol, useRandomCoords=True) == 0
-        ), "Failed to embed molecule"
-    if n_confs > 1:
-        logger.info("Multiple conformers in mol. Will start CREST from first conformer")
+        # Append all conformers to mol
+        for i in range(n_confs):
+            block = lines[i * block_len : i * block_len + block_len]
+            energy = float(block[1].lstrip().rstrip("\n"))
+            atoms = []
+            coords = []
+            for line in block[2:]:
+                a, c = parse_coordline(line)
+                atoms.append(a)
+                coords.append(c)
+            add_conformer2mol(mol, atoms, coords, energy)
+        # Reset Conformers
+        mol.RemoveConformer(org_confid)
         confs = mol.GetConformers()
-        conf_ids = [conf.GetId() for conf in confs]
-        for i in conf_ids[1:]:
-            mol.RemoveConformer(i)
+        for i in range(len(confs)):
+            confs[i].SetId(i)
+        assert mol.GetNumConformers() == n_confs
 
+    @staticmethod
+    def check_conformer(mol):
+        n_confs = mol.GetNumConformers()
+        if n_confs < 1:
+            _logger.info("Embed one conformer to start CREST from")
+            assert (
+                AllChem.EmbedMolecule(mol, useRandomCoords=True) == 0
+            ), "Failed to embed molecule"
+        if n_confs > 1:
+            _logger.info(
+                "Multiple conformers in mol. Will start CREST from first conformer"
+            )
+            confs = mol.GetConformers()
+            conf_ids = [conf.GetId() for conf in confs]
+            for i in conf_ids[1:]:
+                mol.RemoveConformer(i)
 
-def run_crest(mol, options, n_cores, scr, logger):
-    """Runs CREST and returns rdkit.mol object with conformers and energies as property 'energy'"""
-    tempdir = tempfile.TemporaryDirectory(dir=scr, prefix=f"CREST_")
-    tmp_scr = Path(tempdir.name)
-    set_threads(n_cores)
-    check_conformer(mol, logger)
-    try:
-        atoms = [a.GetSymbol() for a in mol.GetAtoms()]
-        coords = mol.GetConformer().GetPositions()
-        xyz_file = write_xyz(atoms, coords, tmp_scr)
-        cmd = get_crest_cmd(n_cores, tmp_scr, options)
-        logger.info(f"Running CREST:\n{cmd}")
+    def generate(
+        self,
+        mol: Chem.Mol,
+        constrained_atoms: Optional[list] = None,
+        constrained_bonds: Optional[list] = None,
+    ) -> Chem.Mol:
+        """Generate conformers of mol object using CREST.
+
+        Args:
+            mol (Chem.Mol): Mol object
+            constrained_atoms (Optional[list]): List of atomids to constrain
+            constrained_bonds (Optional[list]): List of atomids of bonds to constrain (id1, id2)
+
+        Returns:
+            Chem.Mol: Mol object with conformers embedded
+
+        Note:
+            Conformers are sorted in ascending order of energy.
+            Energy is stored in mol.GetConformer(0).GetProp("energy").
+        """
+
+        set_threads(self.n_cores)
+        mol3d = copy.deepcopy(mol)
+        self.check_conformer(
+            mol3d,
+        )
+        tempdir = tempfile.TemporaryDirectory(dir=self.scr, prefix="CREST_")
+        tmp_scr = Path(tempdir.name)
+        atoms = [a.GetSymbol() for a in mol3d.GetAtoms()]
+        coords = mol3d.GetConformer().GetPositions()
+        _ = write_xyz(atoms, coords, tmp_scr)
+        cmd = self._get_crest_cmd(constrained_atoms, constrained_bonds)
+        _logger.info(f"Running CREST: {cmd}")
         lines = stream(cmd, cwd=tmp_scr)
         lines = list(lines)
         if normal_termination(lines, "CREST terminated normally"):
-            read_all_conformers(mol, tmp_scr)
-            if "constrains" in options:
+            self._read_all_conformers(mol3d, tmp_scr)
+            if constrained_atoms:
                 # align conformers
-                Chem.rdMolAlign.AlignMolConformers(mol, atomIds=options["constrains"])
-            logger.debug("".join(lines))
+                Chem.rdMolAlign.AlignMolConformers(mol3d, atomIds=constrained_atoms)
+            _logger.debug("".join(lines))
         else:
-            logger.error("ABNORMAL TERMINATION")
-            logger.info("".join(lines))
-    finally:
-        shutil.rmtree(tmp_scr)
+            _logger.error("ABNORMAL TERMINATION")
+            _logger.info("".join(lines))
+
+        return mol3d

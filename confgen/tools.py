@@ -1,6 +1,8 @@
 import copy
+from typing import Union
 
 import numpy as np
+from rdkit import Chem, RDLogger
 from rdkit.Chem import AllChem
 from rdkit.ML.Cluster import Butina
 
@@ -8,26 +10,42 @@ from confgen.rmsd_utils import rmsd_matrix
 from confgen.utils import hartree2kcalmol
 from confgen.xtb_utils import xtb_optimize
 
-from rdkit import RDLogger
-
 RDLogger.DisableLog("rdApp.*")
 
 
-
 class GeomOptimizer:
-    """Optimize the molecular geometry using UFF, MMFF or a GFNx method"""
+    """Geometry optimizer for Chem.Mol objects.
+
+    Args:
+        method (str): Method to use for geometry optimization.
+                      Options are: UFF, MMFF, and GFNFF, GFN1, GFN2.
+        options (dict, optional): Options to use for xtb geometry optimization.
+    """
 
     def __init__(self, method, **kwargs):
         self.method = method
         self.options = kwargs.get("options", {})
 
     def __repr__(self):
-        # add representation for xTB method
         return f"{self.method.upper()} Optimize"
 
-    def run(self, mol, **kwargs):
-        n_cores = kwargs.get("n_cores", 1)
-        scr = kwargs.get("scr", ".")
+    def run(
+        self, mol: Chem.Mol, n_cores: int = 1, scr: str = ".", **kwargs
+    ) -> Chem.Mol:
+        """Perform geometry optimization on a Chem.Mol object.
+
+        Args:
+            mol (Chem.Mol): Mol object to be optimized
+            n_cores (int, optional): Number of cores to use in optimization.
+                                     Defaults to 1.
+            scr (str, optional): Scratch directory. Defaults to ".".
+
+        Raises:
+            Warning: if optimization method is not supported.
+
+        Returns:
+            Chem.Mol: Mol object containing conformers with optimized geometry.
+        """
         if self.method.lower() == "uff":
             assert AllChem.UFFHasAllMoleculeParams(
                 mol
@@ -48,6 +66,12 @@ class GeomOptimizer:
         elif "gfn" in self.method.lower():
             # set GFN method to use for xTB
             self.options["gfn"] = self.method.lower().split("gfn")[-1]
+            gfn = "gfn"
+            assert self.options["gfn"].lower() in [
+                "ff",
+                "1",
+                "2",
+            ], f"Unsupported method: {self.options[gfn]}"
             mol = xtb_optimize(mol, self.options, n_cores, scr=scr)
         else:
             raise Warning(f"{self.method} is not a valid option.")
@@ -56,17 +80,26 @@ class GeomOptimizer:
 
 
 class Cluster:
-    """RMSD Clustering"""
+    """RMSD clustering on conformers in Chem.Mol object."""
 
-    def __init__(self, threshold, keep="centroid"):
+    def __init__(self, threshold: float, keep: str = "lowenergy") -> Chem.Mol:
         self.threshold = threshold
         self.keep = keep
 
     def __repr__(self):
         return f"RMSD Cluster({self.threshold})"
 
-    def run(self, mol, **kwargs):
-        verbose = kwargs.get("verbose", False)
+    def run(self, mol: Chem.Mol, **kwargs):
+        """Perform RMSD clustering on conformers of a Chem.Mol object.
+
+        Raises:
+            Warning: if 'keep' option is not supported.
+                     Options are: 'lowenergy', 'centroid'
+
+        Returns:
+            Chem.Mol: Mol object containing conformers from different clusters.
+        """
+
         # Calculate difference matrix
         workers = kwargs.get("n_cores", 1)
         diffmat = rmsd_matrix(mol, n_workers=workers)
@@ -93,34 +126,44 @@ class Cluster:
         else:
             raise Warning(f"{self.keep} is not a valid option.")
         # Resort conformers by energy
-        try:
-            energies = [float(conf.GetProp("energy")) for conf in confs]
-            confs = [c for _, c in sorted(zip(energies, confs))]
-        except:
-            pass
+        energies = [
+            float(conf.GetProp("energy")) if conf.HasProp("energy") else float("nan")
+            for conf in confs
+        ]
+        confs = [c for _, c in sorted(zip(energies, confs), key=lambda x: x[0])]
         new_mol = copy.deepcopy(mol)
         new_mol.RemoveAllConformers()
         for c in confs:
             new_mol.AddConformer(c, assignId=True)
-        if verbose:
-            print(
-                f"{new_mol.GetNumConformers()} Conformers after Clustering({self.threshold})"
-            )
 
         return new_mol
 
 
 class Filter:
-    """Energy Filter from lowest energy conformer in kcal/mol"""
+    """Energy Filter from lowest energy conformer in kcal/mol.
 
-    def __init__(self, ewin=None):
+    Args:
+        threshold (int, float): Energy threshold in kcal/mol to filter
+                                conformers from lowest energy conformer.
+    """
+
+    def __init__(self, ewin: Union[int, float]):
         self.ewin = ewin
 
     def __repr__(self):
         return f"Energy Filter({self.ewin} kcal/mol)"
 
-    def run(self, mol, **kwargs):
-        verbose = kwargs.get("verbose", False)
+    def run(self, mol: Chem.Mol, **kwargs) -> Chem.Mol:
+        """Remove all conformers from a Chem.Mol object with energy higher than
+        a given threshold from the lowest energy conformer.
+
+        Args:
+            mol (Chem.Mol): Mol object
+
+        Returns:
+            mol (Chem.Mol): Mol object containing conformers within
+                                  a threshold from lowest energy conformer.
+        """
         confs = mol.GetConformers()
         energies = np.array(
             [float(conf.GetProp("energy")) * hartree2kcalmol for conf in confs]
@@ -131,9 +174,5 @@ class Filter:
         new_mol.RemoveAllConformers()
         for c in confs:
             new_mol.AddConformer(c, assignId=True)
-        if verbose:
-            print(
-                f"{new_mol.GetNumConformers()} Conformers after Energy Filtering({self.ewin})"
-            )
 
         return new_mol
