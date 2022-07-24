@@ -5,10 +5,10 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Union
 
-from generator import BaseConformerGenerator
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+from confgen.generator import BaseConformerGenerator
 from confgen.utils import normal_termination, stream
 from confgen.xtb_utils import (
     add_conformer2mol,

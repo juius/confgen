@@ -1,9 +1,10 @@
 import copy
 from typing import Optional
 
-from generator import BaseConformerGenerator
 from rdkit import Chem
 from rdkit.Chem import AllChem
+
+from confgen.generator import BaseConformerGenerator
 
 
 class ETKDG(BaseConformerGenerator):
