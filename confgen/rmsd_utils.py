@@ -1,5 +1,5 @@
 from itertools import repeat
-from multiprocessing import Pool
+from multiprocessing import get_context
 
 import numpy as np
 from rdkit.Chem.rdMolAlign import AlignMolConformers
@@ -30,8 +30,8 @@ def conformer_rmsd(mol, confIds=[], onlyHeavy=True):
 
 
 def rmsd_matrix(mol, n_workers=1):
-    """Calculate RMSD matrix (only taking heavy atoms into account)
-    between all conformers of a molecule."""
+    """Calculate RMSD matrix (only taking heavy atoms into account) between all
+    conformers of a molecule."""
     confIds = [conf.GetId() for conf in mol.GetConformers()]
     pairs = []
     for i in range(1, len(confIds)):
@@ -45,7 +45,7 @@ def rmsd_matrix(mol, n_workers=1):
         pairs = chunks(pairs, calc_chunksize(n_workers, len(pairs), factor=1))
         # calculate rmsd in parallel
         args = [arg for arg in zip(repeat(mol), pairs)]
-        with Pool(n_workers) as pool:
+        with get_context("fork").Pool(n_workers) as pool:
             results = pool.starmap(conformer_rmsd, args)
         cmat = []
         for res in results:
@@ -58,8 +58,6 @@ if __name__ == "__main__":
 
     from rdkit import Chem
     from rdkit.Chem import AllChem
-
-    from confgen import ConformerGenerator
 
     mol = Chem.MolFromSmiles("C[C@H](N)C(=O)NCC(=O)O")
     mol = Chem.AddHs(mol)

@@ -5,7 +5,7 @@ hartree2kcalmol = 627.5094740631
 
 
 def stream(cmd, cwd=None, shell=True):
-    """Execute command in directory, and stream stdout"""
+    """Execute command in directory, and stream stdout."""
     popen = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -26,9 +26,9 @@ def stream(cmd, cwd=None, shell=True):
 
 
 def normal_termination(lines, pattern):
-    """Check for pattern in lines"""
-    for l in reversed(lines):
-        if l.startswith(pattern):
+    """Check for pattern in lines."""
+    for line in reversed(lines):
+        if line.strip().startswith(pattern):
             return True
     return False
 
