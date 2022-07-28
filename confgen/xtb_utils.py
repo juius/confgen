@@ -8,7 +8,7 @@ from pathlib import Path
 from rdkit.Chem import AllChem
 from rdkit.Geometry import Point3D
 
-from confgen.utils import argsort, normal_termination, stream
+from confgen.utils import normal_termination, sort_conformers, stream
 
 XTB_CMD = "xtb"
 _logger = logging.getLogger("xtb")
@@ -208,10 +208,8 @@ def xtb_calculate(mol, options, n_cores, scr="."):
         for res in xtb_results:
             energy = read_energy(res)
             results.append(energy)
-        for i, energy in enumerate(results):
-            mol_opt.GetConformer(i).SetDoubleProp("energy", energy)
+        for conf, energy in zip(mol_opt.GetConformers(), results):
+            conf.SetDoubleProp("energy", energy)
         # resort conformers with ascending energy
-        # !!!! ONLY SORT CONFID NOT CONFORMERS ITSELF !!!
-        for idx, conf in zip(argsort(results), mol_opt.GetConformers()):
-            conf.SetId(idx)
+        mol_opt = sort_conformers(mol_opt, property="energy")
     return mol_opt
