@@ -48,3 +48,8 @@ def calc_chunksize(n_workers, len_iterable, factor=4):
     if extra:
         chunksize += 1
     return chunksize
+
+
+def argsort(seq):
+    # http://stackoverflow.com/questions/3071415/efficient-method-to-calculate-the-rank-vector-of-a-list-in-python
+    return sorted(range(len(seq)), key=seq.__getitem__)

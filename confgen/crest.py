@@ -198,6 +198,7 @@ class CREST(BaseConformerGenerator):
         _logger.info(f"Running CREST: {cmd}")
         lines = stream(cmd, cwd=tmp_scr)
         lines = list(lines)
+        _logger.info("\n".join(lines))
         if normal_termination(lines, "CREST terminated normally"):
             self._read_all_conformers(mol3d, tmp_scr)
             if constrained_atoms:

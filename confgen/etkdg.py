@@ -75,11 +75,16 @@ class ETKDG(BaseConformerGenerator):
 
         assert len(cids) > 0, "Embed failed."
 
-        if constrained_embed:
-            _ = AllChem.AlignMolConformers(mol3d, atomIds=constrained_atoms)
-
         if self.actions:
             for action in self.actions:
-                mol3d = action.run(mol3d, n_cores=self.n_cores, scr=self.scr)
+                mol3d = action.run(
+                    mol3d,
+                    n_cores=self.n_cores,
+                    scr=self.scr,
+                    constrained_atoms=constrained_atoms,
+                )
+
+        if constrained_embed:
+            _ = AllChem.AlignMolConformers(mol3d, atomIds=constrained_atoms)
 
         return mol3d
