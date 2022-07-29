@@ -36,14 +36,14 @@ class CREST(BaseConformerGenerator):
 
     def __init__(
         self,
-        gfn2: bool = True,
+        # gfn2: bool = True,
         ewin: Union[int, float] = 6,
         mquick: bool = True,
         mdlen: str = "x0.5",
         **kwargs,
     ) -> None:
         super().__init__()
-        self.gfn2 = gfn2
+        # self.gfn2 = gfn2
         self.ewin = ewin
         self.mquick = mquick
         self.mdlen = mdlen

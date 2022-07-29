@@ -1,5 +1,6 @@
 import copy
 import logging
+import math
 import os
 import tempfile
 from multiprocessing import get_context
@@ -17,6 +18,8 @@ _logger.setLevel(logging.INFO)
 
 def set_threads(n_cores):
     """Set threads and procs environment variables."""
+    _ = list(stream("ulimit -s unlimited"))
+    os.environ["OMP_STACKSIZE"] = "4G"
     os.environ["OMP_NUM_THREADS"] = f"{n_cores},1"
     os.environ["MKL_NUM_THREADS"] = str(n_cores)
     os.environ["OMP_MAX_ACTIVE_LEVELS"] = "1"
@@ -83,6 +86,7 @@ def run_xtb(args):
         # return atoms, coords, energy
         return lines
     else:
+        _logger.warning("Calculation terminated abnormally.")
         _logger.debug("".join(lines))
         return None
 
@@ -206,7 +210,10 @@ def xtb_calculate(mol, options, n_cores, scr="."):
         mol_opt = copy.deepcopy(mol)
         results = []
         for res in xtb_results:
-            energy = read_energy(res)
+            if res:
+                energy = read_energy(res)
+            else:
+                energy = math.nan
             results.append(energy)
         for conf, energy in zip(mol_opt.GetConformers(), results):
             conf.SetDoubleProp("energy", energy)
