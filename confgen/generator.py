@@ -1,7 +1,10 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import List
 
 from rdkit import Chem
+
+from confgen.utils import combine_conformers
 
 
 class BaseConformerGenerator(ABC):
@@ -20,3 +23,22 @@ class BaseConformerGenerator(ABC):
     @abstractmethod
     def generate(self, mol: Chem.Mol, **kwargs) -> Chem.Mol:
         pass
+
+
+class MixedGenerator:
+    def __init__(self, generators: List[BaseConformerGenerator]) -> None:
+        self.generators = generators
+
+    def generate(self, mol: Chem.Mol, **kwargs) -> Chem.Mol:
+        mols = []
+        for g in self.generators:
+            mol = g.generate(mol, **kwargs)
+            mols.append(mol)
+
+        for i, m in enumerate(mols):
+            if i == 0:
+                mol3d = m
+            else:
+                mol3d = combine_conformers(mol3d, m)
+
+        return mol3d
