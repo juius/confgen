@@ -1,3 +1,4 @@
+import copy
 import subprocess
 
 from rdkit import Chem
@@ -70,3 +71,10 @@ def sort_conformers(mol, property="energy"):
         new.AddConformer(conf, assignId=True)
 
     return new
+
+
+def combine_conformers(mol1, mol2):
+    new_mol = copy.deepcopy(mol1)
+    for conf in mol2.GetConformers():
+        new_mol.AddConformer(conf, assignId=True)
+    return new_mol

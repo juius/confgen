@@ -190,11 +190,12 @@ class SinglePoint:
         options (dict, optional): Options to use for xtb geometry optimization.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, method="gfn2", **kwargs):
+        self.method = method
         self.options = kwargs.get("options", {})
 
     def __repr__(self):
-        return f"{self.method.upper()} Single Point Calculation"
+        return "Single Point Calculation"
 
     def run(
         self, mol: Chem.Mol, n_cores: int = 1, scr: str = ".", **kwargs
@@ -211,21 +212,13 @@ class SinglePoint:
             Chem.Mol: Mol object containing conformers with optimized geometry.
         """
         # set GFN method to use for xTB
-        for k, value in self.options.items():
-            if "gfn" in k.lower():
-                if not value:
-                    method = k.split("gfn")[-1]
-                    del self.options[k]
-                    self.options["gfn"] = str(method)
-                else:
-                    self.options["gfn"] = str(value)
-                break
-
-        # assert self.options["gfn"].lower() in [
-        #     "ff",
-        #     "1",
-        #     "2",
-        # ], f"Unsupported method: {self.options[gfn]}"
+        self.options["gfn"] = self.method.lower().split("gfn")[-1]
+        gfn = "gfn"
+        assert self.options["gfn"].lower() in [
+            "ff",
+            "1",
+            "2",
+        ], f"Unsupported method: {self.options[gfn]}"
         mol = xtb_calculate(mol, self.options, n_cores, scr=scr)
 
         return mol

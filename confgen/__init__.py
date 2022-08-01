@@ -1,5 +1,5 @@
 import confgen
 from confgen.crest import CREST
 from confgen.etkdg import ETKDG
-from confgen.obabel import OBabel
+from confgen.obabel import Confab, Gen3d, WeightedRotor
 from confgen.tools import Cluster, Filter, GeomOptimizer, SinglePoint

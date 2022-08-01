@@ -14,14 +14,12 @@ class ETKDG(BaseConformerGenerator):
         self,
         n_confs: int = 10,
         pruneRmsThresh: float = 0.1,
-        actions: Optional[list] = None,
         useRandomCoords: bool = True,
         ETversion: int = 2,
         **kwargs
     ) -> None:
         self.n_confs = n_confs
         self.pruneRmsThresh = pruneRmsThresh
-        self.actions = actions
         self.useRandomCoords = useRandomCoords
         self.ETversion = ETversion
         super().__init__(**kwargs)
@@ -74,15 +72,6 @@ class ETKDG(BaseConformerGenerator):
         )
 
         assert len(cids) > 0, "Embed failed."
-
-        if self.actions:
-            for action in self.actions:
-                mol3d = action.run(
-                    mol3d,
-                    n_cores=self.n_cores,
-                    scr=self.scr,
-                    constrained_atoms=constrained_atoms,
-                )
 
         if constrained_embed:
             _ = AllChem.AlignMolConformers(mol3d, atomIds=constrained_atoms)
