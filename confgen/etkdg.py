@@ -69,6 +69,7 @@ class ETKDG(BaseConformerGenerator):
             pruneRmsThresh=self.pruneRmsThresh,
             useRandomCoords=self.useRandomCoords,
             ETversion=self.ETversion,
+            useSmallRingTorsions=True,
         )
 
         assert len(cids) > 0, "Embed failed."
