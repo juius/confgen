@@ -45,9 +45,7 @@ class ETKDG(BaseConformerGenerator):
             Energy is stored in mol.GetConformer(0).GetProp("energy").
         """
         mol3d = copy.deepcopy(mol)
-        assert (
-            len(Chem.GetMolFrags(mol3d)) == 1
-        ), "Can not handle multiple fragments yet."
+        self.check_mol(mol3d)
 
         constrained_embed = True if constrained_atoms is not None else False
 

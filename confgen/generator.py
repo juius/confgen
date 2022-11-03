@@ -24,6 +24,17 @@ class BaseConformerGenerator(ABC):
     def generate(self, mol: Chem.Mol, **kwargs) -> Chem.Mol:
         pass
 
+    def generate_parallel(self, mols: List[Chem.Mol], **kwargs) -> List[Chem.Mol]:
+        raise NotImplementedError
+
+    def check_mol(self, mol: Chem.Mol) -> None:
+        """Check if mol is okay."""
+        assert len(Chem.GetMolFrags(mol)) == 1, "Can not handle multiple fragments."
+
+        assert (
+            mol.GetNumAtoms() == Chem.AddHs(mol).GetNumAtoms()
+        ), "Mol contains implicit hydrogens."
+
 
 class MixedGenerator:
     def __init__(self, generators: List[BaseConformerGenerator]) -> None:

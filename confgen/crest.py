@@ -15,6 +15,7 @@ from confgen.xtb_utils import (
     parse_coordline,
     set_threads,
     write_xyz,
+    xtb_calculate,
 )
 
 CREST_CMD = "crest"
@@ -48,6 +49,24 @@ class CREST(BaseConformerGenerator):
         self.mquick = mquick
         self.mdlen = mdlen
         self.__dict__.update(kwargs)
+
+    def _preopt(self, mol: Chem.Mol, constrained_atoms=None) -> Chem.Mol:
+        """Preoptimize mol object using same method used in CREST.
+
+        Args:
+            mol (Chem.Mol): Mol object
+
+        Returns:
+            Chem.Mol: Mol with optimized geometry
+        """
+        # TODO: remove hardcoding
+        # TODO: add constrained bonds
+        pre_options = {"opt": True, "gfn": 2}
+        if constrained_atoms:
+            pre_options["constrained_atoms"] = constrained_atoms
+        _logger.info(f"Running preoptimization with {pre_options}")
+        mol_opt = xtb_calculate(mol, options=pre_options, n_cores=self.n_cores)
+        return mol_opt
 
     @staticmethod
     def _atom_constrains(constrained_atoms, scr):
@@ -186,9 +205,13 @@ class CREST(BaseConformerGenerator):
 
         set_threads(self.n_cores)
         mol3d = copy.deepcopy(mol)
+        self.check_mol(mol3d)
         self.check_conformer(
             mol3d,
         )
+        # Run preoptimization
+        mol3d = self._preopt(mol3d, constrained_atoms)
+
         tempdir = tempfile.TemporaryDirectory(dir=self.scr, prefix="CREST_")
         tmp_scr = Path(tempdir.name)
         atoms = [a.GetSymbol() for a in mol3d.GetAtoms()]

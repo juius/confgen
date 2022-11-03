@@ -85,8 +85,8 @@ class GeomOptimizer:
 class Cluster:
     """RMSD clustering on conformers in Chem.Mol object."""
 
-    def __init__(self, threshold: float, keep: str = "lowenergy") -> Chem.Mol:
-        self.threshold = threshold
+    def __init__(self, rmsdThreshold: float, keep: str = "lowenergy") -> Chem.Mol:
+        self.threshold = rmsdThreshold
         self.keep = keep
 
     def __repr__(self):
