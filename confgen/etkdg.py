@@ -14,14 +14,12 @@ class ETKDG(BaseConformerGenerator):
         self,
         n_confs: int = 10,
         pruneRmsThresh: float = 0.1,
-        actions: Optional[list] = None,
         useRandomCoords: bool = True,
         ETversion: int = 2,
         **kwargs
     ) -> None:
         self.n_confs = n_confs
         self.pruneRmsThresh = pruneRmsThresh
-        self.actions = actions
         self.useRandomCoords = useRandomCoords
         self.ETversion = ETversion
         super().__init__(**kwargs)
@@ -47,9 +45,7 @@ class ETKDG(BaseConformerGenerator):
             Energy is stored in mol.GetConformer(0).GetProp("energy").
         """
         mol3d = copy.deepcopy(mol)
-        assert (
-            len(Chem.GetMolFrags(mol3d)) == 1
-        ), "Can not handle multiple fragments yet."
+        self.check_mol(mol3d)
 
         constrained_embed = True if constrained_atoms is not None else False
 
@@ -71,15 +67,12 @@ class ETKDG(BaseConformerGenerator):
             pruneRmsThresh=self.pruneRmsThresh,
             useRandomCoords=self.useRandomCoords,
             ETversion=self.ETversion,
+            useSmallRingTorsions=True,
         )
 
         assert len(cids) > 0, "Embed failed."
 
         if constrained_embed:
             _ = AllChem.AlignMolConformers(mol3d, atomIds=constrained_atoms)
-
-        if self.actions:
-            for action in self.actions:
-                mol3d = action.run(mol3d, n_cores=self.n_cores, scr=self.scr)
 
         return mol3d

@@ -8,7 +8,7 @@ from rdkit.ML.Cluster import Butina
 
 from confgen.rmsd_utils import rmsd_matrix
 from confgen.utils import hartree2kcalmol
-from confgen.xtb_utils import xtb_optimize
+from confgen.xtb_utils import xtb_calculate
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -47,9 +47,9 @@ class GeomOptimizer:
             Chem.Mol: Mol object containing conformers with optimized geometry.
         """
         if self.method.lower() == "uff":
-            assert AllChem.UFFHasAllMoleculeParams(
-                mol
-            ), "UFF is not parameterized for this molecule"
+            # assert AllChem.UFFHasAllMoleculeParams(
+            #     mol
+            # ), "UFF is not parameterized for this molecule"
             forcefield = AllChem.UFFGetMoleculeForceField(mol)
             results = AllChem.OptimizeMoleculeConfs(mol, forcefield, numThreads=n_cores)
             for i, conf in enumerate(mol.GetConformers()):
@@ -65,6 +65,9 @@ class GeomOptimizer:
                 conf.SetDoubleProp("energy", float(results[i][1]))
         elif "gfn" in self.method.lower():
             # set GFN method to use for xTB
+            _ = self.options.setdefault("opt", None)
+            if "constrained_atoms" in kwargs and len(kwargs["constrained_atoms"]) > 0:
+                self.options["constrained_atoms"] = kwargs["constrained_atoms"]
             self.options["gfn"] = self.method.lower().split("gfn")[-1]
             gfn = "gfn"
             assert self.options["gfn"].lower() in [
@@ -72,7 +75,7 @@ class GeomOptimizer:
                 "1",
                 "2",
             ], f"Unsupported method: {self.options[gfn]}"
-            mol = xtb_optimize(mol, self.options, n_cores, scr=scr)
+            mol = xtb_calculate(mol, self.options, n_cores, scr=scr)
         else:
             raise Warning(f"{self.method} is not a valid option.")
 
@@ -82,8 +85,8 @@ class GeomOptimizer:
 class Cluster:
     """RMSD clustering on conformers in Chem.Mol object."""
 
-    def __init__(self, threshold: float, keep: str = "lowenergy") -> Chem.Mol:
-        self.threshold = threshold
+    def __init__(self, rmsdThreshold: float, keep: str = "lowenergy") -> Chem.Mol:
+        self.threshold = rmsdThreshold
         self.keep = keep
 
     def __repr__(self):
@@ -176,3 +179,46 @@ class Filter:
             new_mol.AddConformer(c, assignId=True)
 
         return new_mol
+
+
+class SinglePoint:
+    """Geometry optimizer for Chem.Mol objects.
+
+    Args:
+        method (str): Method to use for geometry optimization.
+                      Options are: UFF, MMFF, and GFNFF, GFN1, GFN2.
+        options (dict, optional): Options to use for xtb geometry optimization.
+    """
+
+    def __init__(self, method="gfn2", **kwargs):
+        self.method = method
+        self.options = kwargs.get("options", {})
+
+    def __repr__(self):
+        return "Single Point Calculation"
+
+    def run(
+        self, mol: Chem.Mol, n_cores: int = 1, scr: str = ".", **kwargs
+    ) -> Chem.Mol:
+        """Perform single point calculation on a Chem.Mol object.
+
+        Args:
+            mol (Chem.Mol): Mol object
+            n_cores (int, optional): Number of cores to use in calculation.
+                                     Defaults to 1.
+            scr (str, optional): Scratch directory. Defaults to ".".
+
+        Returns:
+            Chem.Mol: Mol object containing conformers with optimized geometry.
+        """
+        # set GFN method to use for xTB
+        self.options["gfn"] = self.method.lower().split("gfn")[-1]
+        gfn = "gfn"
+        assert self.options["gfn"].lower() in [
+            "ff",
+            "1",
+            "2",
+        ], f"Unsupported method: {self.options[gfn]}"
+        mol = xtb_calculate(mol, self.options, n_cores, scr=scr)
+
+        return mol

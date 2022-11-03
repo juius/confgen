@@ -1,5 +1,6 @@
 import copy
 import logging
+import math
 import os
 import tempfile
 from multiprocessing import get_context
@@ -8,7 +9,7 @@ from pathlib import Path
 from rdkit.Chem import AllChem
 from rdkit.Geometry import Point3D
 
-from confgen.utils import normal_termination, stream
+from confgen.utils import normal_termination, sort_conformers, stream
 
 XTB_CMD = "xtb"
 _logger = logging.getLogger("xtb")
@@ -17,6 +18,8 @@ _logger.setLevel(logging.INFO)
 
 def set_threads(n_cores):
     """Set threads and procs environment variables."""
+    _ = list(stream("ulimit -s unlimited"))
+    os.environ["OMP_STACKSIZE"] = "4G"
     os.environ["OMP_NUM_THREADS"] = f"{n_cores},1"
     os.environ["MKL_NUM_THREADS"] = str(n_cores)
     os.environ["OMP_MAX_ACTIVE_LEVELS"] = "1"
@@ -78,10 +81,12 @@ def run_xtb(args):
     lines = list(lines)
     if normal_termination(lines, "normal termination of xtb"):
         _logger.info("".join(lines))
-        atoms, coords = read_opt_structure(lines)
-        energy = read_energy(lines)
-        return atoms, coords, energy
+        # atoms, coords = read_opt_structure(lines)
+        # energy = read_energy(lines)
+        # return atoms, coords, energy
+        return lines
     else:
+        _logger.warning("Calculation terminated abnormally.")
         _logger.debug("".join(lines))
         return None
 
@@ -115,8 +120,8 @@ def read_energy(lines):
     return energy
 
 
-def xtb_optimize(mol, options, n_cores, scr="."):
-    """Optimizes each conformer of rdkit.mol in parallel."""
+def xtb_calculate(mol, options, n_cores, scr="."):
+    """Run xTB calculation on each conformer of rdkit.mol in parallel."""
 
     # Only use one core for each xTB calculation
     set_threads(1)
@@ -136,54 +141,82 @@ def xtb_optimize(mol, options, n_cores, scr="."):
         xyz_file = write_xyz(atoms, coords, confdir)
         xyz_files.append(xyz_file)
 
+    # clean xtb method option
+    for k, value in options.items():
+        if "gfn" in k.lower():
+            if value is not None and value is not True:
+                options[k + str(value)] = None
+                del options[k]
+                break
     # Options to xTB command
-    _ = options.setdefault("opt", None)
     cmd = f"{XTB_CMD} "
     for key, value in options.items():
-        if value is None:
+        if value is None or value is True:
             cmd += f"--{key} "
         else:
             if "constrain" not in key:
                 cmd += f"--{key} {str(value)} "
 
     # write constrains
-    if "constrain_atoms" in options and len(options["constrain_atoms"]) > 0:
+    if "constrained_atoms" in options and len(options["constrained_atoms"]) > 0:
         with open(tmp_scr / "constrains.inp", "w") as f:
             f.write("$fix\n")
             f.write(
-                f"    atoms: {','.join([str(a+1) for a in options['constrain_atoms']])}\n"
+                f"    atoms: {','.join([str(a+1) for a in options['constrained_atoms']])}\n"
             )
             f.write("$end")
         cmd += "--input ../constrains.inp "
 
-    # xTB optimize each conformer in parallel
+    # run xTB on each conformer in parallel
     args = []
     for xyz_file in xyz_files:
         args.append((cmd, xyz_file))
 
     with get_context("fork").Pool(n_cores) as pool:
-        results = pool.map(run_xtb, args)
-    results = list(results)
+        xtb_results = pool.map(run_xtb, args)
+    xtb_results = list(xtb_results)
 
-    # Add optimized conformers to mol_opt
-    mol_opt = copy.deepcopy(mol)
-    n_confs = mol_opt.GetNumConformers()
-    # Remove all but first conformers
-    _ = [mol_opt.RemoveConformer(i) for i in range(1, n_confs)]
-    # Sort results in ascending energy (index 2)
-    results.sort(key=lambda res: res[2])
-    # Add optimized conformers
-    for i, res in enumerate(results):
-        if res:
-            add_conformer2mol(mol_opt, res[0], res[1], res[2])
-        else:
-            print(f"Conformer {i} did not converge.")
-    # Remove last old conformer
-    mol_opt.RemoveConformer(0)
-    # Reset confIDs (starting from 0)
-    confs = mol_opt.GetConformers()
-    for i in range(len(confs)):
-        confs[i].SetId(i)
-    if "constrain_atoms" in options and len(options["constrain_atoms"]) > 0:
-        _ = AllChem.AlignMolConformers(mol_opt, atomIds=options["constrain_atoms"])
+    if "opt" in options:
+        results = []
+        for res in xtb_results:
+            atoms, coords = read_opt_structure(res)
+            energy = read_energy(res)
+            results.append((atoms, coords, energy))
+        # Add optimized conformers to mol_opt
+        mol_opt = copy.deepcopy(mol)
+        n_confs = mol_opt.GetNumConformers()
+        # Remove all but first conformers
+        _ = [mol_opt.RemoveConformer(i) for i in range(1, n_confs)]
+        # Sort results in ascending energy (index 2)
+        results.sort(key=lambda res: res[2])
+        # Add optimized conformers
+        for i, res in enumerate(results):
+            if res:
+                add_conformer2mol(mol_opt, res[0], res[1], res[2])
+            else:
+                print(f"Conformer {i} did not converge.")
+        # Remove last old conformer
+        mol_opt.RemoveConformer(0)
+        # Reset confIDs (starting from 0)
+        confs = mol_opt.GetConformers()
+        for i in range(len(confs)):
+            confs[i].SetId(i)
+        if "constrained_atoms" in options and len(options["constrained_atoms"]) > 0:
+            _ = AllChem.AlignMolConformers(
+                mol_opt, atomIds=options["constrained_atoms"]
+            )
+    else:
+        # read energy and set as conf property
+        mol_opt = copy.deepcopy(mol)
+        results = []
+        for res in xtb_results:
+            if res:
+                energy = read_energy(res)
+            else:
+                energy = math.nan
+            results.append(energy)
+        for conf, energy in zip(mol_opt.GetConformers(), results):
+            conf.SetDoubleProp("energy", energy)
+        # resort conformers with ascending energy
+        mol_opt = sort_conformers(mol_opt, property="energy")
     return mol_opt

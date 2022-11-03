@@ -15,6 +15,7 @@ from confgen.xtb_utils import (
     parse_coordline,
     set_threads,
     write_xyz,
+    xtb_calculate,
 )
 
 CREST_CMD = "crest"
@@ -36,18 +37,36 @@ class CREST(BaseConformerGenerator):
 
     def __init__(
         self,
-        gfn2: bool = True,
+        # gfn2: bool = True,
         ewin: Union[int, float] = 6,
         mquick: bool = True,
         mdlen: str = "x0.5",
         **kwargs,
     ) -> None:
         super().__init__()
-        self.gfn2 = gfn2
+        # self.gfn2 = gfn2
         self.ewin = ewin
         self.mquick = mquick
         self.mdlen = mdlen
         self.__dict__.update(kwargs)
+
+    def _preopt(self, mol: Chem.Mol, constrained_atoms=None) -> Chem.Mol:
+        """Preoptimize mol object using same method used in CREST.
+
+        Args:
+            mol (Chem.Mol): Mol object
+
+        Returns:
+            Chem.Mol: Mol with optimized geometry
+        """
+        # TODO: remove hardcoding
+        # TODO: add constrained bonds
+        pre_options = {"opt": True, "gfn": 2}
+        if constrained_atoms:
+            pre_options["constrained_atoms"] = constrained_atoms
+        _logger.info(f"Running preoptimization with {pre_options}")
+        mol_opt = xtb_calculate(mol, options=pre_options, n_cores=self.n_cores)
+        return mol_opt
 
     @staticmethod
     def _atom_constrains(constrained_atoms, scr):
@@ -186,9 +205,13 @@ class CREST(BaseConformerGenerator):
 
         set_threads(self.n_cores)
         mol3d = copy.deepcopy(mol)
+        self.check_mol(mol3d)
         self.check_conformer(
             mol3d,
         )
+        # Run preoptimization
+        mol3d = self._preopt(mol3d, constrained_atoms)
+
         tempdir = tempfile.TemporaryDirectory(dir=self.scr, prefix="CREST_")
         tmp_scr = Path(tempdir.name)
         atoms = [a.GetSymbol() for a in mol3d.GetAtoms()]
@@ -198,6 +221,7 @@ class CREST(BaseConformerGenerator):
         _logger.info(f"Running CREST: {cmd}")
         lines = stream(cmd, cwd=tmp_scr)
         lines = list(lines)
+        _logger.info("\n".join(lines))
         if normal_termination(lines, "CREST terminated normally"):
             self._read_all_conformers(mol3d, tmp_scr)
             if constrained_atoms:
