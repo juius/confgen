@@ -1,20 +1,13 @@
 
 ConformerGenerator
-===============
+==================
 
 Example using ETKDG
----------------
+-------------------
 
 .. code-block:: python
 
     from confgen import ETKDG
-
-
-    # ETKDG options
-    etkdg_options = {
-        'n_confs': 1000,
-        'embed_threshold': 0.05,
-    }
 
     # Initialize ConformerGenerator
     cgen_etkdg = ETKDG(n_confs=100, pruneRmsThresh=0.1, n_cores=2)
@@ -29,18 +22,25 @@ Example using ETKDG
     mol3d.GetNumConformers()
     # >> 14
 
+
 Atoms can be constrained in the embedding process by passing a list of atom indices to the ``constrained_atoms`` argument.
 This requires the presence of one 3D conformer in the molecule, the atoms will the constrained to their respective position in this conformer.
 
+Alternatively, a coordMap dictionary with atom indices as keys and either lists, numpy arrays or Point3Ds as values can be passed to ``constrained_atoms``.
+
 .. code-block:: python
 
+    # constrain atoms with the following indices to their respective position in the first conformer
     constrained_atoms = [2,3,4,5,16]
+
+    # constrain atoms with the following indices to the positions given in the dictionary
+    constrained_atoms = {2: [0,0,0], 3: [2,0,0], 5: [2,2,0]}
 
     mol3d = cgen_etkdg.generate(mol, constrained_atoms=constrained_atoms)
 
 
 Example using CREST
----------------
+-------------------
 CREST keywords can be found `here <https://xtb-docs.readthedocs.io/en/latest/crestcmd.html>`_
 
 
@@ -76,7 +76,7 @@ Tools
 ===============
 
 Geometry Optimization
----------------
+---------------------
 
 Availabel methods: ``uff``, ``mmff`` and ``gfnff``, ``gfn1`` and ``gfn2``
 The method ``run`` will return a new rdkit.mol object with the optimized conformers sorted with ascending energies.
