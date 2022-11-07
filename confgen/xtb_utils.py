@@ -123,6 +123,9 @@ def read_energy(lines):
 def xtb_calculate(mol, options, n_cores, scr="."):
     """Run xTB calculation on each conformer of rdkit.mol in parallel."""
 
+    # Check xtb version and executable
+    check_xtb()
+
     # Only use one core for each xTB calculation
     set_threads(1)
 
