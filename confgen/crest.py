@@ -209,6 +209,8 @@ class CREST(BaseConformerGenerator):
 
         set_threads(self.n_cores)
         mol3d = copy.deepcopy(mol)
+        # clear all properties
+        _ = [mol3d.ClearProp(key) for key in mol3d.GetPropNames()]
         self.check_mol(mol3d)
         self.check_conformer(
             mol3d,
