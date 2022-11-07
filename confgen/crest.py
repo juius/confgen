@@ -2,6 +2,7 @@ import copy
 import logging
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional, Union
 
@@ -137,6 +138,10 @@ class CREST(BaseConformerGenerator):
         org_confid = mol.GetConformer().GetId()
         # Read all conformers from CREST output
         tmp = Path(scr).glob("crest_conformers*xyz")
+        # wait if file is still writing
+        if len(list(tmp)) == 0:
+            time.sleep(3)
+            tmp = Path(scr).glob("crest_conformers*xyz")
         for crest_file in tmp:
             break
         with open(crest_file, "r") as f:
