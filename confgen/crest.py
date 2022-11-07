@@ -138,9 +138,8 @@ class CREST(BaseConformerGenerator):
         org_confid = mol.GetConformer().GetId()
         # Read all conformers from CREST output
         tmp = Path(scr).glob("crest_conformers*xyz")
-        # wait if file is still writing
         if len(list(tmp)) == 0:
-            time.sleep(3)
+            time.sleep(5)
             tmp = Path(scr).glob("crest_conformers*xyz")
         for crest_file in tmp:
             break
