@@ -7,7 +7,7 @@ Example using ETKDG
 
 .. code-block:: python
 
-    from confgen import ETKDG
+    from confgen.etkdg import ETKDG
 
     # Initialize ConformerGenerator
     cgen_etkdg = ETKDG(n_confs=100, pruneRmsThresh=0.1, n_cores=2)
@@ -46,7 +46,7 @@ CREST keywords can be found `here <https://xtb-docs.readthedocs.io/en/latest/cre
 
 .. code-block:: python
 
-    from confgen import CREST
+    from confgen.crest import CREST
 
     # Initialize ConformerGenerator
     cgen_crest = CREST(gfn=2, ewin=6, mquick=True, mdlen='x0.1', n_cores=2)

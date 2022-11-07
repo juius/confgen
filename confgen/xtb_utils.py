@@ -123,6 +123,9 @@ def read_energy(lines):
 def xtb_calculate(mol, options, n_cores, scr="."):
     """Run xTB calculation on each conformer of rdkit.mol in parallel."""
 
+    # Check xtb version and executable
+    check_xtb()
+
     # Only use one core for each xTB calculation
     set_threads(1)
 
@@ -184,9 +187,10 @@ def xtb_calculate(mol, options, n_cores, scr="."):
             results.append((atoms, coords, energy))
         # Add optimized conformers to mol_opt
         mol_opt = copy.deepcopy(mol)
-        n_confs = mol_opt.GetNumConformers()
         # Remove all but first conformers
-        _ = [mol_opt.RemoveConformer(i) for i in range(1, n_confs)]
+        confids = [conf.GetId() for conf in mol_opt.GetConformers()]
+        _ = [mol_opt.RemoveConformer(i) for i in confids[1:]]
+
         # Sort results in ascending energy (index 2)
         results.sort(key=lambda res: res[2])
         # Add optimized conformers
@@ -219,4 +223,5 @@ def xtb_calculate(mol, options, n_cores, scr="."):
             conf.SetDoubleProp("energy", energy)
         # resort conformers with ascending energy
         mol_opt = sort_conformers(mol_opt, property="energy")
+
     return mol_opt
