@@ -122,7 +122,10 @@ class CREST(BaseConformerGenerator):
         }
 
         for key, value in options.items():
-            if (value is None) or (not value) or (value is True):
+            # to handle gfn2//gfnff case (`gfn='2//gfnff'`)
+            if key.lower() == "gfn":
+                cmd += f"--{key}{value} "
+            elif (value is None) or (not value) or (value is True):
                 cmd += f"--{key} "
             elif value:
                 cmd += f"--{key} {str(value)} "
@@ -137,12 +140,14 @@ class CREST(BaseConformerGenerator):
         """
         org_confid = mol.GetConformer().GetId()
         # Read all conformers from CREST output
-        tmp = Path(scr).glob("crest_conformers*xyz")
-        if len(list(tmp)) == 0:
+        tmp = list(Path(scr).glob("./crest_conformers*xyz"))
+        # if writing of file is slow
+        if len(tmp) == 0:
             time.sleep(5)
-            tmp = Path(scr).glob("crest_conformers*xyz")
-        for crest_file in tmp:
-            break
+            tmp = list(Path(scr).glob("./crest_conformers*xyz"))
+        assert len(tmp) > 0, f"Could not find CREST conformer output file in {scr}."
+        assert len(tmp) == 1, f"Found multiple CREST conformer output files: {tmp}."
+        crest_file = tmp[0]
         with open(crest_file, "r") as f:
             lines = f.readlines()
         n_atoms = int(lines[0].lstrip().rstrip("\n"))
@@ -227,7 +232,7 @@ class CREST(BaseConformerGenerator):
         _logger.info(f"Running CREST: {cmd}")
         lines = stream(cmd, cwd=tmp_scr)
         lines = list(lines)
-        _logger.info("\n".join(lines))
+        _logger.info("".join(lines))
         if normal_termination(lines, "CREST terminated normally"):
             self._read_all_conformers(mol3d, tmp_scr)
             if constrained_atoms:
