@@ -20,25 +20,25 @@ class GeomOptimizer:
         method (str): Method to use for geometry optimization.
                       Options are: UFF, MMFF, and GFNFF, GFN1, GFN2.
         options (dict, optional): Options to use for xtb geometry optimization.
+        n_cores (int, optional): Number of cores to use in calculation.
+                                     Defaults to 1.
+        scr (str, optional): Scratch directory. Defaults to ".".
     """
 
-    def __init__(self, method, **kwargs):
+    def __init__(self, method: str, n_cores: int = 1, scr: str = ".", **kwargs):
         self.method = method
+        self.n_cores = n_cores
+        self.scr = scr
         self.options = kwargs.get("options", {})
 
     def __repr__(self):
         return f"{self.method.upper()} Optimize"
 
-    def run(
-        self, mol: Chem.Mol, n_cores: int = 1, scr: str = ".", **kwargs
-    ) -> Chem.Mol:
+    def run(self, mol: Chem.Mol, **kwargs) -> Chem.Mol:
         """Perform geometry optimization on a Chem.Mol object.
 
         Args:
             mol (Chem.Mol): Mol object to be optimized
-            n_cores (int, optional): Number of cores to use in optimization.
-                                     Defaults to 1.
-            scr (str, optional): Scratch directory. Defaults to ".".
 
         Raises:
             Warning: if optimization method is not supported.
@@ -51,7 +51,9 @@ class GeomOptimizer:
             #     mol
             # ), "UFF is not parameterized for this molecule"
             forcefield = AllChem.UFFGetMoleculeForceField(mol)
-            results = AllChem.OptimizeMoleculeConfs(mol, forcefield, numThreads=n_cores)
+            results = AllChem.OptimizeMoleculeConfs(
+                mol, forcefield, numThreads=self.n_cores
+            )
             for i, conf in enumerate(mol.GetConformers()):
                 conf.SetDoubleProp("energy", float(results[i][1]))
         elif self.method.lower() == "mmff":
@@ -60,22 +62,29 @@ class GeomOptimizer:
             ), "MMFF is not parameterized for this molecule"
             mprobs = AllChem.MMFFGetMoleculeProperties(mol)
             forcefield = AllChem.MMFFGetMoleculeForceField(mol, mprobs)
-            results = AllChem.OptimizeMoleculeConfs(mol, forcefield, numThreads=n_cores)
+            results = AllChem.OptimizeMoleculeConfs(
+                mol, forcefield, numThreads=self.n_cores
+            )
             for i, conf in enumerate(mol.GetConformers()):
                 conf.SetDoubleProp("energy", float(results[i][1]))
         elif "gfn" in self.method.lower():
             # set GFN method to use for xTB
             _ = self.options.setdefault("opt", None)
-            if "constrained_atoms" in kwargs and len(kwargs["constrained_atoms"]) > 0:
-                self.options["constrained_atoms"] = kwargs["constrained_atoms"]
             self.options["gfn"] = self.method.lower().split("gfn")[-1]
             gfn = "gfn"
-            assert self.options["gfn"].lower() in [
+            assert self.options[gfn].lower() in [
                 "ff",
                 "1",
                 "2",
             ], f"Unsupported method: {self.options[gfn]}"
-            mol = xtb_calculate(mol, self.options, n_cores, scr=scr)
+            detailed_input = kwargs.get("detailed_input", None)
+            mol = xtb_calculate(
+                mol,
+                options=self.options,
+                detailed_input=detailed_input,
+                n_cores=self.n_cores,
+                scr=self.scr,
+            )
         else:
             raise Warning(f"{self.method} is not a valid option.")
 
@@ -188,25 +197,28 @@ class SinglePoint:
         method (str): Method to use for geometry optimization.
                       Options are: UFF, MMFF, and GFNFF, GFN1, GFN2.
         options (dict, optional): Options to use for xtb geometry optimization.
+        n_cores (int, optional): Number of cores to use in calculation.
+                                     Defaults to 1.
+        scr (str, optional): Scratch directory. Defaults to ".".
     """
 
-    def __init__(self, method="gfn2", **kwargs):
+    def __init__(
+        self, method: str = "gfn2", n_cores: int = 1, scr: str = ".", **kwargs
+    ):
         self.method = method
+        self.n_cores = n_cores
+        self.scr = scr
         self.options = kwargs.get("options", {})
 
     def __repr__(self):
         return "Single Point Calculation"
 
-    def run(
-        self, mol: Chem.Mol, n_cores: int = 1, scr: str = ".", **kwargs
-    ) -> Chem.Mol:
+    def run(self, mol: Chem.Mol, **kwargs) -> Chem.Mol:
         """Perform single point calculation on a Chem.Mol object.
 
         Args:
             mol (Chem.Mol): Mol object
-            n_cores (int, optional): Number of cores to use in calculation.
-                                     Defaults to 1.
-            scr (str, optional): Scratch directory. Defaults to ".".
+
 
         Returns:
             Chem.Mol: Mol object containing conformers with optimized geometry.
@@ -219,6 +231,8 @@ class SinglePoint:
             "1",
             "2",
         ], f"Unsupported method: {self.options[gfn]}"
-        mol = xtb_calculate(mol, self.options, n_cores, scr=scr)
+        mol = xtb_calculate(
+            mol, options=self.options, n_cores=self.n_cores, scr=self.scr
+        )
 
         return mol

@@ -3,9 +3,11 @@ import logging
 import math
 import os
 import tempfile
+from dataclasses import dataclass
 from multiprocessing import get_context
 from pathlib import Path
 
+from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Geometry import Point3D
 
@@ -34,7 +36,7 @@ def check_xtb(version=None, logger=None):
             for line in lines:
                 if "xtb version" in line:
                     assert line.split()[3] == version, f"Requires xtb version {version}"
-            _logger.info(f"xtb version {version}")
+            _logger.info(f"xtb version {version}\n")
     else:
         raise Warning("Could not find xTB")
 
@@ -76,18 +78,13 @@ def run_xtb(args):
     """Runs xTB command for xyz-file in parent directory and returns optimized
     structure."""
     cmd, xyz_file = args
-    _logger.debug(f"Running {cmd}")
     lines = stream(f"{cmd}-- {xyz_file.name}", cwd=xyz_file.parent)
     lines = list(lines)
+    _logger.debug("".join(lines) + "\n")
     if normal_termination(lines, "normal termination of xtb"):
-        _logger.info("".join(lines))
-        # atoms, coords = read_opt_structure(lines)
-        # energy = read_energy(lines)
-        # return atoms, coords, energy
         return lines
     else:
-        _logger.warning("Calculation terminated abnormally.")
-        _logger.debug("".join(lines))
+        _logger.warning("Calculation terminated abnormally.\n")
         return None
 
 
@@ -120,25 +117,59 @@ def read_energy(lines):
     return energy
 
 
-def xtb_calculate(mol, options, n_cores, scr="."):
-    """Run xTB calculation on each conformer of rdkit.mol in parallel."""
+def get_detailed_input(detailed_input_dict, force_constant: float = 1.0):
+    """Returns a string with the detailed input for xTB."""
+    output = ""
+    for section in detailed_input_dict.keys():
+        output += f"${section}\n"
+        output += str(detailed_input_dict[section])
+    output += f"$force constant={force_constant}\n"
+    output += "$end\n"
+    return output
+
+
+def xtb_calculate(
+    mol: Chem.Mol,
+    options: dict = None,
+    detailed_input: dict = None,
+    n_cores: int = 1,
+    scr: str = ".",
+) -> Chem.Mol:
+    """Run xTB calculation on each conformer of rdkit.mol in parallel.
+
+    Args:
+        mol (Chem.Mol): Mol object
+        options (dict, optional): xtb options, see https://xtb-docs.readthedocs.io/en/latest/commandline.html. Defaults to None.
+        detailed_input (dict, optional): detailed input dict, see https://xtb-docs.readthedocs.io/en/latest/xcontrol.html. Defaults to None.
+        n_cores (int, optional): Number of cores to use. Defaults to 1.
+        scr (str, optional): Working directory. Defaults to ".".
+
+    Returns:
+        Chem.Mol: Mol object
+    """
+
+    # Check that mol has 3D conformer
+    n_confs = mol.GetNumConformers()
+    assert n_confs > 0, "Mol has no conformers"
+    assert mol.GetConformer().Is3D(), "Mol has no 3D conformer"
 
     # Check xtb version and executable
     check_xtb()
 
     # Only use one core for each xTB calculation
-    set_threads(1)
+    cores_per_calc = max([n_cores // n_confs, 1])
+    set_threads(cores_per_calc)
 
     # Creat TMP directory
     tempdir = tempfile.TemporaryDirectory(dir=scr, prefix="XTBOPT_")
     tmp_scr = Path(tempdir.name)
+    _logger.info(f"Working directory:\n{tmp_scr}\n")
 
     # Write xyz-file for each conformer
     atoms = [a.GetSymbol() for a in mol.GetAtoms()]
     xyz_files = []
-    n_confs = mol.GetNumConformers()
     for i, conf in enumerate(mol.GetConformers()):
-        confdir = tmp_scr / "CONF{num:0{width}}".format(num=i, width=len(str(n_confs)))
+        confdir = tmp_scr / "conf{num:0{width}}".format(num=i, width=len(str(n_confs)))
         os.makedirs(confdir)
         coords = conf.GetPositions()
         xyz_file = write_xyz(atoms, coords, confdir)
@@ -152,30 +183,28 @@ def xtb_calculate(mol, options, n_cores, scr="."):
                 del options[k]
                 break
     # Options to xTB command
-    cmd = f"{XTB_CMD} "
+    cmd = f"{XTB_CMD} --verbose --parallel {cores_per_calc} "
     for key, value in options.items():
         if value is None or value is True:
             cmd += f"--{key} "
         else:
-            if "constrain" not in key:
-                cmd += f"--{key} {str(value)} "
-
-    # write constrains
-    if "constrained_atoms" in options and len(options["constrained_atoms"]) > 0:
+            cmd += f"--{key} {str(value)} "
+    if detailed_input:
+        # write detailed input file
+        detailed_string = get_detailed_input(detailed_input)
         with open(tmp_scr / "constrains.inp", "w") as f:
-            f.write("$fix\n")
-            f.write(
-                f"    atoms: {','.join([str(a+1) for a in options['constrained_atoms']])}\n"
-            )
-            f.write("$end")
+            f.write(detailed_string)
         cmd += "--input ../constrains.inp "
+        _logger.info(f"Detailed input:\n{detailed_string}\n")
+    _logger.info(f"Command:\n{cmd}\n")
 
     # run xTB on each conformer in parallel
     args = []
     for xyz_file in xyz_files:
         args.append((cmd, xyz_file))
 
-    with get_context("fork").Pool(n_cores) as pool:
+    n_workers = n_cores // cores_per_calc
+    with get_context("fork").Pool(n_workers) as pool:
         xtb_results = pool.map(run_xtb, args)
     xtb_results = list(xtb_results)
 
@@ -205,10 +234,23 @@ def xtb_calculate(mol, options, n_cores, scr="."):
         confs = mol_opt.GetConformers()
         for i in range(len(confs)):
             confs[i].SetId(i)
-        if "constrained_atoms" in options and len(options["constrained_atoms"]) > 0:
-            _ = AllChem.AlignMolConformers(
-                mol_opt, atomIds=options["constrained_atoms"]
-            )
+        # align conformers along constrained atoms
+        catoms = (
+            options.get("detailed_input", dict())
+            .get("constrain", dict())
+            .get("atoms", None)
+        )
+        if catoms:
+            atomlist = []
+            parts = catoms.split(",")
+            for part in parts:
+                if "-" in part:
+                    start, stop = part.split("-")
+                    r = list(range(int(start), int(stop) + 1))
+                    atomlist.extend(r)
+                else:
+                    atomlist.append(int(part))
+            _ = AllChem.AlignMolConformers(mol_opt, atomIds=atomlist)
     else:
         # read energy and set as conf property
         mol_opt = copy.deepcopy(mol)
@@ -225,3 +267,134 @@ def xtb_calculate(mol, options, n_cores, scr="."):
         mol_opt = sort_conformers(mol_opt, property="energy")
 
     return mol_opt
+
+
+@dataclass
+class AtomConstraint:
+    atom: int
+
+    def __post_init__(self):
+        assert isinstance(self.atom, int), "atom must be int"
+        self.atom += 1  # xtb starts counting at 1
+
+    def __str__(self) -> str:
+        return f"atom: {self.atom}"
+
+
+@dataclass
+class ElementConstraint:
+    element: str
+
+    def __post_init__(self):
+        assert isinstance(self.element, str), "element must be str"
+        self.element = self.element.capitalize()
+
+    def __str__(self) -> str:
+        return f"element: {self.element}"
+
+
+@dataclass
+class DistanceConstraint:
+    atoms: list or tuple
+    length: float or int or None
+
+    def __post_init__(self):
+        assert isinstance(self.atoms, (list, tuple)), "atoms must be a list or tuple"
+        assert len(self.atoms) == 2, "DistanceConstraint must have 2 atoms"
+        if not self.length:
+            self.length = "auto"
+        self.atoms = [a + 1 for a in self.atoms]  # xtb starts counting at 1
+
+    def __str__(self) -> str:
+        return f"distance: {self.atoms[0]}, {self.atoms[1]}, {self.length}"
+
+
+@dataclass
+class AngleConstraint:
+    atoms: list or tuple
+    angle: float or int or None
+
+    def __post_init__(self):
+        assert isinstance(self.atoms, (list, tuple)), "atoms must be a list or tuple"
+        assert len(self.atoms) == 3, "AngleConstraint must have 3 atoms"
+        if self.angle:
+            assert self.angle <= 180, "angle must be <= 180 degrees"
+        if not self.angle:
+            self.angle = "auto"
+        self.atoms = [a + 1 for a in self.atoms]  # xtb starts counting at 1
+
+    def __str__(self) -> str:
+        return f"angle: {self.atoms[0]}, {self.atoms[1]}, {self.atoms[2]}, {self.angle}"
+
+
+@dataclass
+class DihedralConstraint:
+    atoms: list or tuple
+    angle: float or int or None
+
+    def __post_init__(self):
+        assert isinstance(self.atoms, (list, tuple)), "atoms must be a list or tuple"
+        assert len(self.atoms) == 4, "DihedralConstraint must have 4 atoms"
+        if self.angle:
+            assert self.angle <= 180, "angle must be <= 180 degrees"
+        if not self.angle:
+            self.angle = "auto"
+        self.atoms = [a + 1 for a in self.atoms]  # xtb starts counting at 1
+
+    def __str__(self) -> str:
+        return f"dihedral: {self.atoms[0]}, {self.atoms[1]}, {self.atoms[2]}, {self.atoms[3]}, {self.angle}"
+
+
+@dataclass
+class XtbConstraints:
+    atoms: list[AtomConstraint] = None
+    elements: list[ElementConstraint] = None
+    distances: list[DistanceConstraint] = None
+    angles: list[AngleConstraint] = None
+    dihedrals: list[DihedralConstraint] = None
+
+    def __post_init__(self):
+        if self.atoms:
+            for a in self.atoms:
+                assert isinstance(
+                    a, AtomConstraint
+                ), "atoms must be a list of AtomConstraint"
+        if self.elements:
+            for e in self.elements:
+                assert isinstance(
+                    e, ElementConstraint
+                ), "elements must be a list of ElementConstraint"
+        if self.distances:
+            for d in self.distances:
+                assert isinstance(
+                    d, DistanceConstraint
+                ), "distances must be a list of DistanceConstraint"
+        if self.angles:
+            for ang in self.angles:
+                assert isinstance(
+                    ang, AngleConstraint
+                ), "angles must be a list of AngleConstraint"
+        if self.dihedrals:
+            for dih in self.dihedrals:
+                assert isinstance(
+                    dih, DihedralConstraint
+                ), "dihedrals must be a list of DihedralConstraint"
+
+    def __str__(self) -> str:
+        string = ""
+        if self.atoms:
+            for a in self.atoms:
+                string += f"{a}\n"
+        if self.elements:
+            for e in self.elements:
+                string += f"{e}\n"
+        if self.distances:
+            for d in self.distances:
+                string += f"{d}\n"
+        if self.angles:
+            for ang in self.angles:
+                string += f"{ang}\n"
+        if self.dihedrals:
+            for dih in self.dihedrals:
+                string += f"{dih}\n"
+        return string
