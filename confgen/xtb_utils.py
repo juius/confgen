@@ -6,6 +6,7 @@ import tempfile
 from dataclasses import dataclass
 from multiprocessing import get_context
 from pathlib import Path
+from typing import List, Tuple
 
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -295,7 +296,7 @@ class ElementConstraint:
 
 @dataclass
 class DistanceConstraint:
-    atoms: list or tuple
+    atoms: List or Tuple
     length: float or int or None
 
     def __post_init__(self):
@@ -311,7 +312,7 @@ class DistanceConstraint:
 
 @dataclass
 class AngleConstraint:
-    atoms: list or tuple
+    atoms: List or Tuple
     angle: float or int or None
 
     def __post_init__(self):
@@ -329,7 +330,7 @@ class AngleConstraint:
 
 @dataclass
 class DihedralConstraint:
-    atoms: list or tuple
+    atoms: List or Tuple
     angle: float or int or None
 
     def __post_init__(self):
@@ -347,11 +348,11 @@ class DihedralConstraint:
 
 @dataclass
 class XtbConstraints:
-    atoms: list[AtomConstraint] = None
-    elements: list[ElementConstraint] = None
-    distances: list[DistanceConstraint] = None
-    angles: list[AngleConstraint] = None
-    dihedrals: list[DihedralConstraint] = None
+    atoms: List[AtomConstraint] = None
+    elements: List[ElementConstraint] = None
+    distances: List[DistanceConstraint] = None
+    angles: List[AngleConstraint] = None
+    dihedrals: List[DihedralConstraint] = None
 
     def __post_init__(self):
         if self.atoms:
