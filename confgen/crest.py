@@ -38,18 +38,19 @@ class CREST(BaseConformerGenerator):
 
     def __init__(
         self,
-        # gfn2: bool = True,
         ewin: Union[int, float] = 6,
         mquick: bool = True,
         mdlen: str = "x0.5",
         **kwargs,
     ) -> None:
         super().__init__()
-        # self.gfn2 = gfn2
         self.ewin = ewin
         self.mquick = mquick
         self.mdlen = mdlen
         self.__dict__.update(kwargs)
+
+    def _get_xtb_options(self):
+        return {k: v for k, v in self.__dict__.items() if k not in ["n_cores", "scr"]}
 
     def _preopt(self, mol: Chem.Mol, constrained_atoms=None) -> Chem.Mol:
         """Preoptimize mol object using same method used in CREST.
@@ -60,9 +61,8 @@ class CREST(BaseConformerGenerator):
         Returns:
             Chem.Mol: Mol with optimized geometry
         """
-        # TODO: remove hardcoding
-        # TODO: add constrained bonds
-        pre_options = {"opt": True, "gfn": 2}
+
+        pre_options = self._get_xtb_options()
         if constrained_atoms:
             pre_options["constrained_atoms"] = constrained_atoms
         _logger.info(f"Running preoptimization with {pre_options}")
@@ -117,9 +117,7 @@ class CREST(BaseConformerGenerator):
             if constrained_bonds:
                 self._bond_constrains(constrained_bonds, tmp_scr)
         # Generate CREST Command
-        options = {
-            k: v for k, v in self.__dict__.items() if k not in ["n_cores", "scr"]
-        }
+        options = self._get_xtb_options()
 
         for key, value in options.items():
             # to handle gfn2//gfnff case (`gfn='2//gfnff'`)

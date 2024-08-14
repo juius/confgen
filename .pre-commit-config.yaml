@@ -1,16 +1,14 @@
 repos:
-
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v3.4.0
+    rev: v4.4.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
         args: ["--unsafe"]
-      - id: check-added-large-files
 
   - repo: https://github.com/myint/autoflake
-    rev: v1.4
+    rev: v2.2.0
     hooks:
       - id: autoflake
         name: Removes unused variables
@@ -21,7 +19,7 @@ repos:
           - --ignore-init-module-imports
 
   - repo: https://github.com/pre-commit/mirrors-isort
-    rev: v5.7.0
+    rev: v5.10.1
     hooks:
       - id: isort
         name: Sorts imports
@@ -34,14 +32,14 @@ repos:
         ]
 
   - repo: https://github.com/psf/black
-    rev: 22.6.0
+    rev: 23.3.0
     hooks:
       - id: black
         name: Fixes formatting
         language_version: python3
 
   - repo: https://github.com/myint/docformatter
-    rev: v1.3.1
+    rev: v1.7.3
     hooks:
       - id: docformatter
         args: [--in-place]
@@ -51,8 +49,8 @@ repos:
         language: python
         types: [python]
 
-  - repo: https://gitlab.com/pycqa/flake8
-    rev: 3.8.4
+  - repo: https://github.com/pycqa/flake8
+    rev: 6.0.0
     hooks:
       - id: flake8
         name: Checks pep8 style
@@ -65,32 +63,37 @@ repos:
           "--ignore=E501,E203,W503",
         ]
 
-  - repo: local
+  - repo: https://github.com/myint/docformatter
+    rev: v1.7.3
     hooks:
-
-      - id: jupyisort
-        name: Sorts ipynb imports
-        entry: jupytext --pipe-fmt ".py" --pipe "isort - --multi-line=3 --trailing-comma --force-grid-wrap=0 --use-parentheses" --sync
-        files: \.ipynb$
+      - id: docformatter
+        name: docformatter
+        description: 'Formats docstrings to follow PEP 257.'
+        entry: docformatter
+        args: [-i]
         language: python
+        types: [python]
 
-      - id: jupyblack
-        name: Fixes ipynb format
-        entry: jupytext --pipe-fmt ".py" --pipe "black - " --sync
-        files: \.ipynb$
-        language: python
+  - repo: https://github.com/mwouts/jupytext
+    rev: v1.14.7  # CURRENT_TAG/COMMIT_HASH
+    hooks:
+    - id: jupytext
+      args: [--sync, --pipe, black]
+      additional_dependencies:
+        - black==23.3.0 # Matches hook
 
-      - id: nbconvert
-        name: Removes ipynb content
-        entry: jupyter nbconvert
-        args:
-          [
-            "--ClearOutputPreprocessor.enabled=True",
-            "--ClearMetadataPreprocessor.enabled=True",
-            "--RegexRemovePreprocessor.enabled=True",
-            "--to=notebook",
-            "--log-level=ERROR",
-            "--inplace",
-          ]
-        files: \.ipynb$
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.6.1
+    hooks:
+    - id: nbstripout
+  - repo: https://github.com/mwouts/jupytext
+    rev: v1.14.1
+    hooks:
+      - id: jupytext
+        name: jupytext
+        description: Runs jupytext on all notebooks and paired files
         language: python
+        entry: jupytext --pre-commit-mode --set-formats "ipynb,py:percent"
+        require_serial: true
+        types_or: [jupyter, python]
+        files: ^notebooks/  # Only apply this under notebooks/

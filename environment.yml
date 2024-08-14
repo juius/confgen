@@ -2,7 +2,6 @@ name: confgen
 channels:
   - conda-forge
 dependencies:
-  - python=3.9
   - crest=2.12
   - rdkit
-  - xtb=6.4.0
+  - xtb
