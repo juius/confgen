@@ -7,8 +7,13 @@ from rdkit.Chem import AllChem
 from rdkit.ML.Cluster import Butina
 
 from confgen.rmsd_utils import rmsd_matrix
-from confgen.utils import hartree2kcalmol
+from confgen.utils import hartree2kcalmol, sort_conformers
 from confgen.xtb_utils import xtb_calculate
+
+try:
+    from tooltoad.orca import orca_calculate
+except ImportError:
+    print("tooltoad is not installed. Please install it to use orca_calculate options.")
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -209,6 +214,9 @@ class SinglePoint:
         self.n_cores = n_cores
         self.scr = scr
         self.options = kwargs.get("options", {})
+        for key, value in kwargs.items():
+            if key not in ["options"]:
+                self.key = value
 
     def __repr__(self):
         return "Single Point Calculation"
@@ -223,16 +231,37 @@ class SinglePoint:
         Returns:
             Chem.Mol: Mol object containing conformers with optimized geometry.
         """
+        # TODO: use tooltoad for all qm calcs
         # set GFN method to use for xTB
-        self.options["gfn"] = self.method.lower().split("gfn")[-1]
-        gfn = "gfn"
-        assert self.options["gfn"].lower() in [
-            "ff",
-            "1",
-            "2",
-        ], f"Unsupported method: {self.options[gfn]}"
-        mol = xtb_calculate(
-            mol, options=self.options, n_cores=self.n_cores, scr=self.scr
-        )
+        if "gfn" in self.method.lower():
+            self.options["gfn"] = self.method.lower().split("gfn")[-1]
+            gfn = "gfn"
+            assert self.options["gfn"].lower() in [
+                "ff",
+                "1",
+                "2",
+            ], f"Unsupported method: {self.options[gfn]}"
+            mol = xtb_calculate(
+                mol, options=self.options, n_cores=self.n_cores, scr=self.scr
+            )
+        elif self.method.lower() == "orca":
+            atoms = [a.GetSymbol() for a in mol.GetAtoms()]
+            charge = Chem.GetFormalCharge(mol)
+            for conf in mol.GetConformers():
+                coords = conf.GetPositions()
+                results = orca_calculate(
+                    atoms=atoms,
+                    coords=coords,
+                    charge=charge,
+                    options=self.options,
+                    n_cores=self.n_cores,
+                    scr=self.scr,
+                    orca_cmd=kwargs.get("orca_cmd", "orca"),
+                    set_env=kwargs.get("set_env", ""),
+                )
+                conf.SetDoubleProp("energy", results["electronic_energy"])
+            mol = sort_conformers(mol, property="energy")
 
+        else:
+            raise NotImplementedError(f"{self.method} is not a valid option.")
         return mol
