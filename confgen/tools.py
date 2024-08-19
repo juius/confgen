@@ -216,7 +216,7 @@ class SinglePoint:
         self.options = kwargs.get("options", {})
         for key, value in kwargs.items():
             if key not in ["options"]:
-                self.key = value
+                self.__setattr__(key, value)
 
     def __repr__(self):
         return "Single Point Calculation"
@@ -259,7 +259,14 @@ class SinglePoint:
                     orca_cmd=kwargs.get("orca_cmd", "orca"),
                     set_env=kwargs.get("set_env", ""),
                 )
-                conf.SetDoubleProp("energy", results["electronic_energy"])
+                conf.SetDoubleProp(
+                    "energy",
+                    (
+                        results["electronic_energy"]
+                        if results["normal_termination"]
+                        else np.inf
+                    ),
+                )
             mol = sort_conformers(mol, property="energy")
 
         else:
