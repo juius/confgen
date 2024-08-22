@@ -101,9 +101,9 @@ class CREST(BaseConformerGenerator):
         with open(scr / Path(".xcontrol.sample"), "w") as f:
             f.writelines(lines)
 
-    def _get_crest_cmd(self, constrained_atoms, constrained_bonds, tmp_scr):
+    def _get_crest_cmd(self, constrained_atoms, constrained_bonds, tmp_scr, charge=0):
         """Generate CREST command."""
-        cmd = f"{CREST_CMD} mol.xyz -T {self.n_cores} "
+        cmd = f"{CREST_CMD} mol.xyz -T {self.n_cores} --chrg {charge} "
         # Generate CREST Constrains
         if constrained_atoms or constrained_bonds:
             # Remove xcontrol file if already present
@@ -224,7 +224,12 @@ class CREST(BaseConformerGenerator):
         atoms = [a.GetSymbol() for a in mol3d.GetAtoms()]
         coords = mol3d.GetConformer().GetPositions()
         _ = write_xyz(atoms, coords, tmp_scr)
-        cmd = self._get_crest_cmd(constrained_atoms, constrained_bonds, tmp_scr)
+        cmd = self._get_crest_cmd(
+            constrained_atoms,
+            constrained_bonds,
+            tmp_scr,
+            charge=Chem.GetFormalCharge(mol3d),
+        )
         _logger.info(f"Running CREST: {cmd}")
         lines = stream(cmd, cwd=tmp_scr)
         lines = list(lines)

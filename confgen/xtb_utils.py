@@ -184,7 +184,7 @@ def xtb_calculate(
                 del options[k]
                 break
     # Options to xTB command
-    cmd = f"{XTB_CMD} --verbose --parallel {cores_per_calc} "
+    cmd = f"{XTB_CMD} --verbose --parallel {cores_per_calc} --chrg {Chem.GetFormalCharge(mol)} "
     for key, value in options.items():
         if value is None or value is True:
             cmd += f"--{key} "
